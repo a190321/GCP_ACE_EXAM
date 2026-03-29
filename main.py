@@ -110,11 +110,24 @@ def get_all_question_ids():
 # API: 取得單一題目
 @app.get("/api/questions/{q_id}")
 def get_question(q_id: str):
-    doc_ref = db.collection('questions').document(q_id)
-    doc = doc_ref.get()
-    if doc.exists:
-        return {"status": "success", "data": doc.to_dict()}
-    return {"status": "error", "message": "找不到該題目"}
+    try:
+        # 1. 指定集合與文件 ID
+        doc_ref = db.collection('questions').document(q_id)
+        doc = doc_ref.get()
+        
+        # 2. 檢查文件是否存在
+        if not doc.exists:
+            return {"status": "error", "message": f"找不到題號：{q_id}"}
+            
+        # 3. 轉換為字典格式
+        data = doc.to_dict()
+        
+        # 4. 回傳成功結果
+        return {"status": "success", "data": data}
+        
+    except Exception as e:
+        # 如果發生任何 Python 錯誤，把它轉成 JSON 回傳，避免直接跳 500 崩潰
+        return {"status": "error", "message": f"後端解析錯誤: {str(e)}"}
 
 # API: 取得使用者的筆記
 @app.get("/api/notes")
@@ -176,3 +189,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+@app.get("/")
+def read_root():
+    return {"message": "GCP ACE Exam API is running!", "status": "healthy"}
