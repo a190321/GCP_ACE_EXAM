@@ -9,38 +9,37 @@ from google.cloud import secretmanager
 import json
 
 def get_firebase_key_from_secret():
-    # 建立 Secret Manager 客戶端
-    client = secretmanager.SecretManagerServiceClient()
+    secret_name = os.environ.get("FIREBASE_SECRET_PATH")
     
-    # 這裡建議使用環境變數來管理秘密路徑，彈性更高
-    # 格式範例：projects/123456789/secrets/firebase-json-key/versions/latest
-    secret_name = os.environ.get("projects/846978404810/secrets/firebase-key")
-    
+    # 防呆：如果沒抓到環境變數，直接印出錯誤並回傳 None
     if not secret_name:
-        # 如果沒設環境變數（例如在本機跑），回傳 None 或讀取本機檔案
+        print("❌ 錯誤：找不到環境變數 FIREBASE_SECRET_PATH")
         return None
 
-    # 存取秘密版本內容
-    response = client.access_secret_version(request={"name": secret_name})
-    payload = response.payload.data.decode("UTF-8")
-    
-    # 將字串轉為字典 (Dict)
-    return json.loads(payload)
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        response = client.access_secret_version(request={"name": secret_name})
+        payload = response.payload.data.decode("UTF-8")
+        return json.loads(payload)
+    except Exception as e:
+        # 關鍵：把具體的錯誤印出來，這樣你在 Logs 就能一眼看到為什麼失敗
+        print(f"❌ 存取 Secret Manager 失敗：{e}")
+        return None
 
-# 初始化 Firebase
+# --- 初始化區 ---
+print("🚀 正在啟動應用程式並初始化 Firebase...")
 key_dict = get_firebase_key_from_secret()
 
 if key_dict:
-    # 直接傳入字典，完全不產生實體檔案
     cred = credentials.Certificate(key_dict)
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("✅ Firebase 初始化成功！")
 else:
-    # 備用方案：如果是在本機測試，讀取本地檔案
-    cred = credentials.Certificate("firebase_key.json")
-
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(cred)
-
-db = firestore.client()
+    print("⚠️ Firebase 初始化跳過（將導致後端功能失效），請檢查權限與路徑。")
+    # 這裡不讓程式崩潰，而是讓它跑起來，你才能看到上面的 Print 訊息
+    db = None
 
 # 1. 初始化 Firebase (請記得把金鑰檔名換成你自己的)
 # cred = credentials.Certificate("firebase_key.json")
