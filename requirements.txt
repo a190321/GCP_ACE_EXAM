@@ -1,1 +1,4 @@
+fastapi
+uvicorn
+firebase-admin
 google-cloud-secret-manager

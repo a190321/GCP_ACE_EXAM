@@ -1,18 +1,15 @@
-# 使用輕量級 Python 鏡像
-FROM python:3.9-slim
+# 1. 使用穩定的 Python 版本
+FROM python:3.11-slim
 
-# 設定工作目錄
+# 2. 設定工作目錄
 WORKDIR /app
 
-# 複製依賴清單並安裝
+# 3. 先複製清單並安裝套件
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 複製所有程式碼（包含你的 Firebase 金鑰 JSON）
+# 4. 複製所有程式碼
 COPY . .
 
-# Cloud Run 預設監聽 8080 埠
-EXPOSE 8080
-
-# 啟動 FastAPI (注意：port 必須是 8080)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# 5. 使用 python -m 指令確保能正確啟動 uvicorn
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
