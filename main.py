@@ -8,27 +8,44 @@ import os
 from google.cloud import secretmanager
 import json
 
-def get_firebase_key_from_secret():
-    secret_name = os.environ.get("FIREBASE_SECRET_PATH")
-    
-    # 防呆：如果沒抓到環境變數，直接印出錯誤並回傳 None
-    if not secret_name:
-        print("❌ 錯誤：找不到環境變數 FIREBASE_SECRET_PATH")
+
+
+# 強制讀取環境變數，如果不指定就用本機測試的檔名
+FIREBASE_SECRET_PATH = os.environ.get("FIREBASE_SECRET_PATH")
+
+def get_firebase_key():
+    if not FIREBASE_SECRET_PATH:
+        print("❌ [錯誤] 沒有設定環境變數 FIREBASE_SECRET_PATH")
+        # 如果是本機測試，可以直接回傳本機檔案的 JSON 內容 (選用)
         return None
 
     try:
+        print(f"🔍 嘗試存取 Secret: {FIREBASE_SECRET_PATH}")
         client = secretmanager.SecretManagerServiceClient()
-        response = client.access_secret_version(request={"name": secret_name})
+        response = client.access_secret_version(request={"name": FIREBASE_SECRET_PATH})
         payload = response.payload.data.decode("UTF-8")
         return json.loads(payload)
     except Exception as e:
-        # 關鍵：把具體的錯誤印出來，這樣你在 Logs 就能一眼看到為什麼失敗
-        print(f"❌ 存取 Secret Manager 失敗：{e}")
+        print(f"❌ [嚴重錯誤] 讀取 Secret Manager 失敗: {e}")
         return None
+
+# 初始化 Firebase
+key_dict = get_firebase_key()
+
+if key_dict:
+    print("✅ 成功讀取金鑰，準備初始化 Firebase...")
+    cred = credentials.Certificate(key_dict)
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("✅ Firebase DB 連線成功！")
+else:
+    print("⚠️ 警告: db 設為 None。接下來的 API 呼叫將會失敗。")
+    db = None
 
 # --- 初始化區 ---
 print("🚀 正在啟動應用程式並初始化 Firebase...")
-key_dict = get_firebase_key_from_secret()
+key_dict = get_firebase_key()
 
 if key_dict:
     cred = credentials.Certificate(key_dict)
