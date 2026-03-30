@@ -174,6 +174,38 @@ def update_unfamiliar(data: UnfamiliarRequest, uid: str = Depends(verify_user_to
     }, merge=True)
     return {"status": "success"}
 
+# ==========================================
+# 新增：「我會了」功能區塊
+# ==========================================
+class MasteredRequest(BaseModel):
+    question_id: str
+    is_mastered: bool
+
+# 1. 儲存或更新「我會了」狀態
+@app.post("/api/update-mastered")
+def update_mastered(data: MasteredRequest, uid: str = Depends(verify_user_token)):
+    doc_id = f"{uid}_{data.question_id}"
+    doc_ref = db.collection('user_progress').document(doc_id)
+    
+    # 使用 merge=True 只更新 is_mastered 欄位，保留原本的對錯紀錄
+    doc_ref.set({
+        "user_id": uid,
+        "question_id": data.question_id,
+        "is_mastered": data.is_mastered
+    }, merge=True)
+    return {"status": "success"}
+
+# 2. 獲取該使用者所有「我會了」的題目 ID
+@app.get("/api/mastered-question-ids")
+def get_mastered_ids(uid: str = Depends(verify_user_token)):
+    docs = db.collection('user_progress') \
+             .where('user_id', '==', uid) \
+             .where('is_mastered', '==', True).stream()
+    
+    # 防呆機制：確保文件裡真的有 question_id
+    ids = sorted([doc.to_dict().get('question_id') for doc in docs if 'question_id' in doc.to_dict()])
+    return {"status": "success", "ids": ids}
+
 @app.get("/api/unfamiliar-question-ids")
 def get_unfamiliar_ids(uid: str = Depends(verify_user_token)):
     docs = db.collection('user_progress') \
@@ -181,6 +213,8 @@ def get_unfamiliar_ids(uid: str = Depends(verify_user_token)):
              .where('is_unfamiliar', '==', True).stream()
     ids = sorted([doc.to_dict()['question_id'] for doc in docs])
     return {"status": "success", "ids": ids}
+
+
 
 # ==========================================
 # 5. 啟動區塊
