@@ -73,32 +73,33 @@ def verify_user_token(credentials: HTTPAuthorizationCredentials = Depends(securi
         )
 
 # ==========================================
-# 3. Request Body 定義 (移除 user_id，因為改由 Token 提供)
+# 3. Request Body 定義
 # ==========================================
 class NoteRequest(BaseModel):
-    # user_id: str  <-- 移除了
     question_id: str
     content: str
 
 class ProgressRequest(BaseModel):
-    # user_id: str  <-- 移除了
     question_id: str
     is_correct: bool
 
 class UnfamiliarRequest(BaseModel):
-    # user_id: str  <-- 移除了
     question_id: str
     is_unfamiliar: bool
 
+class MasteredRequest(BaseModel):
+    question_id: str
+    is_mastered: bool
+
 # ==========================================
-# 4. API 路由 (需要登入的加上 uid: str = Depends(verify_user_token))
+# 4. API 路由 
 # ==========================================
 
 @app.get("/")
 def read_root():
     return {"message": "GCP ACE Exam API is running with Auth!", "status": "healthy"}
 
-# --- 公開 API (不需要登入就能看題目) ---
+# --- 公開 API ---
 
 @app.get("/api/question-ids")
 def get_all_question_ids():
@@ -120,18 +121,20 @@ def get_question(q_id: str):
     except Exception as e:
         return {"status": "error", "message": f"後端解析錯誤: {str(e)}"}
 
-# --- 私有 API (需要登入才能操作個人資料) ---
+# --- 私有 API (需要登入才能操作) ---
 
+# 【作答進度與錯題】
 @app.post("/api/record-progress")
 def record_progress(data: ProgressRequest, uid: str = Depends(verify_user_token)):
     doc_id = f"{uid}_{data.question_id}"
     doc_ref = db.collection('user_progress').document(doc_id)
+    # 🌟 這裡補上 merge=True，防止把「我會了」或「星星」洗掉！
     doc_ref.set({
-        "user_id": uid, # 使用解析出來的真實 UID
+        "user_id": uid,
         "question_id": data.question_id,
         "is_correct": data.is_correct,
         "last_answered_at": datetime.now().isoformat()
-    })
+    }, merge=True)
     return {"status": "success"}
 
 @app.get("/api/wrong-question-ids")
@@ -139,9 +142,20 @@ def get_wrong_question_ids(uid: str = Depends(verify_user_token)):
     docs = db.collection('user_progress') \
              .where('user_id', '==', uid) \
              .where('is_correct', '==', False).stream()
-    wrong_ids = sorted([doc.to_dict()['question_id'] for doc in docs])
+    wrong_ids = sorted([doc.to_dict().get('question_id') for doc in docs if 'question_id' in doc.to_dict()])
     return {"status": "success", "ids": wrong_ids}
 
+# 🌟 補上漏掉的 API：獲取答對題號
+@app.get("/api/correct-question-ids")
+def get_correct_question_ids(uid: str = Depends(verify_user_token)):
+    docs = db.collection('user_progress') \
+             .where('user_id', '==', uid) \
+             .where('is_correct', '==', True).stream()
+    correct_ids = sorted([doc.to_dict().get('question_id') for doc in docs if 'question_id' in doc.to_dict()])
+    return {"status": "success", "ids": correct_ids}
+
+
+# 【個人筆記】
 @app.get("/api/notes")
 def get_note(question_id: str, uid: str = Depends(verify_user_token)):
     doc_id = f"{uid}_{question_id}"
@@ -163,6 +177,7 @@ def save_note(note: NoteRequest, uid: str = Depends(verify_user_token)):
     })
     return {"status": "success", "message": "筆記已成功儲存"}
 
+# 【不太熟 ⭐】
 @app.post("/api/update-unfamiliar")
 def update_unfamiliar(data: UnfamiliarRequest, uid: str = Depends(verify_user_token)):
     doc_id = f"{uid}_{data.question_id}"
@@ -174,20 +189,19 @@ def update_unfamiliar(data: UnfamiliarRequest, uid: str = Depends(verify_user_to
     }, merge=True)
     return {"status": "success"}
 
-# ==========================================
-# 新增：「我會了」功能區塊
-# ==========================================
-class MasteredRequest(BaseModel):
-    question_id: str
-    is_mastered: bool
+@app.get("/api/unfamiliar-question-ids")
+def get_unfamiliar_ids(uid: str = Depends(verify_user_token)):
+    docs = db.collection('user_progress') \
+             .where('user_id', '==', uid) \
+             .where('is_unfamiliar', '==', True).stream()
+    ids = sorted([doc.to_dict().get('question_id') for doc in docs if 'question_id' in doc.to_dict()])
+    return {"status": "success", "ids": ids}
 
-# 1. 儲存或更新「我會了」狀態
+# 【我會了 ✅】
 @app.post("/api/update-mastered")
 def update_mastered(data: MasteredRequest, uid: str = Depends(verify_user_token)):
     doc_id = f"{uid}_{data.question_id}"
     doc_ref = db.collection('user_progress').document(doc_id)
-    
-    # 使用 merge=True 只更新 is_mastered 欄位，保留原本的對錯紀錄
     doc_ref.set({
         "user_id": uid,
         "question_id": data.question_id,
@@ -195,25 +209,13 @@ def update_mastered(data: MasteredRequest, uid: str = Depends(verify_user_token)
     }, merge=True)
     return {"status": "success"}
 
-# 2. 獲取該使用者所有「我會了」的題目 ID
 @app.get("/api/mastered-question-ids")
 def get_mastered_ids(uid: str = Depends(verify_user_token)):
     docs = db.collection('user_progress') \
              .where('user_id', '==', uid) \
              .where('is_mastered', '==', True).stream()
-    
-    # 防呆機制：確保文件裡真的有 question_id
     ids = sorted([doc.to_dict().get('question_id') for doc in docs if 'question_id' in doc.to_dict()])
     return {"status": "success", "ids": ids}
-
-@app.get("/api/unfamiliar-question-ids")
-def get_unfamiliar_ids(uid: str = Depends(verify_user_token)):
-    docs = db.collection('user_progress') \
-             .where('user_id', '==', uid) \
-             .where('is_unfamiliar', '==', True).stream()
-    ids = sorted([doc.to_dict()['question_id'] for doc in docs])
-    return {"status": "success", "ids": ids}
-
 
 
 # ==========================================
